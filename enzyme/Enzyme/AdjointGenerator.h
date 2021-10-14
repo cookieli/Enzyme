@@ -7782,8 +7782,6 @@ public:
       IRBuilder<> Builder2(&call);
       getForwardBuilder(Builder2);
 
-      bool retUsed = subretused;
-
       SmallVector<Value *, 8> args;
       std::vector<DIFFE_TYPE> argsInverted;
       std::map<int, Type *> gradByVal;
@@ -7844,7 +7842,7 @@ public:
 
       auto newcalled = gutils->Logic.CreateForwardDiff(
           cast<Function>(called), subretType, argsInverted, gutils->TLI,
-          TR.analyzer.interprocedural, /*returnValue*/ retUsed,
+          TR.analyzer.interprocedural, /*returnValue*/ subretused,
           /*subdretptr*/ false, DerivativeMode::ForwardMode, nullptr,
           nextTypeInfo, {});
 
@@ -7864,10 +7862,12 @@ public:
 #endif
 
       if (!newcalled->getReturnType()->isVoidTy()) {
-        bool structret = retUsed && subretType != DIFFE_TYPE::CONSTANT;
+        bool structret = subretused && subretType != DIFFE_TYPE::CONSTANT;
         auto newcall = gutils->getNewFromOriginal(orig);
+        Value *primal = nullptr;
         Value *diffe;
         if (structret) {
+          primal = Builder2.CreateExtractValue(diffes, 0);
           diffe = Builder2.CreateExtractValue(diffes, 1);
         } else {
           diffe = diffes;
@@ -7878,6 +7878,10 @@ public:
           auto placeholder = cast<PHINode>(&*ifound->second);
           gutils->replaceAWithB(placeholder, diffe);
           gutils->erase(placeholder);
+          if (primal) {
+            gutils->replaceAWithB(newcall, primal);
+            gutils->erase(newcall);
+          }
         } else {
           gutils->replaceAWithB(newcall, diffe);
           gutils->erase(newcall);
@@ -7886,6 +7890,12 @@ public:
           }
         }
       } else {
+        auto ifound = gutils->invertedPointers.find(orig);
+        if (ifound != gutils->invertedPointers.end()) {
+          auto placeholder = cast<PHINode>(&*ifound->second);
+          gutils->invertedPointers.erase(ifound);
+          gutils->erase(placeholder);
+        }
         eraseIfUnused(*orig, /*erase*/ true, /*check*/ false);
       }
 

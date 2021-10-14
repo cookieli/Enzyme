@@ -2330,8 +2330,16 @@ void createTerminator(TypeResults &TR, DiffeGradientUtils *gutils,
     switch (retVal) {
     case ReturnType::Return: {
       auto ret = inst->getOperand(0);
-      toret = retType == DIFFE_TYPE::CONSTANT ? gutils->getNewFromOriginal(ret)
-                                              : gutils->diffe(ret, nBuilder);
+
+      if (retType == DIFFE_TYPE::CONSTANT) {
+        toret = gutils->getNewFromOriginal(ret);
+      } else if (!ret->getType()->isFPOrFPVectorTy() &&
+                 TR.getReturnAnalysis().Inner0().isPossiblePointer()) {
+        toret = gutils->invertPointerM(ret, nBuilder);
+      } else {
+        toret = gutils->diffe(ret, nBuilder);
+      }
+
       break;
     }
     case ReturnType::TwoReturns: {
@@ -2342,7 +2350,8 @@ void createTerminator(TypeResults &TR, DiffeGradientUtils *gutils,
       toret =
           nBuilder.CreateInsertValue(toret, gutils->getNewFromOriginal(ret), 0);
 
-      if (TR.getReturnAnalysis().Inner0().isPossiblePointer()) {
+      if (!ret->getType()->isFPOrFPVectorTy() &&
+          TR.getReturnAnalysis().Inner0().isPossiblePointer()) {
         toret = nBuilder.CreateInsertValue(
             toret, gutils->invertPointerM(ret, nBuilder), 1);
       } else {
